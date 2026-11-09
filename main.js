@@ -8,7 +8,9 @@ import { buildScene } from './scene.js';
 // Ordonnances en convention « cylindre négatif » : sphère / cylindre × axe.
 const P = {
   eye: { sph: -2, cyl: -1, axis: 180 },
-  pupilMm: 4,
+  pupilMm: 3,
+  autoPupil: true, // pupille déduite de l'heure (luminosité)
+  hour: 14,
   age: 30,
   A: { sph: -2, cyl: -1, axis: 180, profile: 'mono', add: 0 },
   B: { sph: -2, cyl: -1, axis: 180, profile: 'rings', add: 2 },
@@ -24,12 +26,39 @@ const accAmp = () => Math.max(0, 18.5 - 0.3 * P.age);
 // Modèles ILLUSTRATIFS (pas des données fabricant).
 const sstep = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const PROFILES = {
-  mono:    ['Monofocale (sans aberration)',          () => 0],
-  sa:      ['Monofocale + aberration sphérique',     (r, a) => a * (r / 3) ** 2],
-  cd_prog: ['Centre-distance progressif',            (r, a) => a * sstep(1.0, 3.0, r)],
-  cn_prog: ['Centre-près progressif',                (r, a) => a * (1 - sstep(0.5, 2.5, r))],
-  rings:   ['Centre-distance à anneaux (dual focus)', (r, a) => a * (sstep(1.6, 1.75, r) - sstep(2.3, 2.45, r) + sstep(2.9, 3.05, r) - sstep(3.6, 3.75, r))],
-  edof:    ['EDOF (illustratif)',                    (r, a) => a * (0.5 - 0.5 * Math.cos(3 * Math.PI * (r / 3.5) ** 2))],
+  mono:    ['Monofocale (sans aberration)',          () => 0,
+    "Même puissance partout. Image nette à une seule distance ; le paramètre « addition » n'a pas d'effet."],
+  sa:      ['Monofocale + aberration sphérique',     (r, a) => a * (r / 3) ** 2,
+    "La puissance change doucement vers le bord (ΔP = amplitude à 3 mm de rayon). Peu visible avec une petite pupille, gênant de nuit (halos).", true],
+  cd_prog: ['Centre-distance progressif',            (r, a) => a * sstep(1.0, 3.0, r),
+    "Centre réglé pour la vision de loin, puissance positive qui augmente vers le bord (jusqu'à + addition). Design typique de contrôle de la myopie ou de presbytie."],
+  cn_prog: ['Centre-près progressif',                (r, a) => a * (1 - sstep(0.5, 2.5, r)),
+    "Centre réglé pour la vision de près (+ addition), qui revient à la puissance de loin vers le bord. Avec une petite pupille, la vision de loin est voilée."],
+  rings:   ['Centre-distance à anneaux (dual focus)', (r, a) => a * (sstep(1.6, 1.75, r) - sstep(2.3, 2.45, r) + sstep(2.9, 3.05, r) - sstep(3.6, 3.75, r)),
+    "Zone centrale de loin (Ø 3,3 mm), puis anneaux alternés « + addition » / loin. Effet surtout visible quand la pupille dépasse ~3,5 mm, donc la nuit : image nette + voile et halos autour des lumières.", true],
+  edof:    ['EDOF (illustratif)',                    (r, a) => a * (0.5 - 0.5 * Math.cos(3 * Math.PI * (r / 3.5) ** 2)),
+    "Profondeur de champ étendue : puissance qui ondule entre loin et + addition. Moins net à une distance donnée, mais acceptable sur une plage plus large."],
+};
+const VIEW_DESC = {
+  nu: "Ce que voit l'œil sans aucune correction.",
+  A: "L'œil corrigé par la lentille A.",
+  B: "L'œil corrigé par la lentille B.",
+  split: "Comparaison simultanée : moitié gauche = lentille A, moitié droite = lentille B.",
+  ref: "Image sans aucun flou, pour référence (œil parfait, pas une simulation).",
+};
+const HELP = {
+  sph: "Puissance sphérique en dioptries (D).\nNégative = myopie (flou de loin), positive = hypermétropie.\nUn myope de −2 D voit net jusqu'à 1/2 = 50 cm.",
+  cyl: "Astigmatisme : la cornée n'est pas ronde, la puissance diffère selon l'orientation.\nLe flou devient étiré (en traits) au lieu d'être rond.\n0 = pas d'astigmatisme.",
+  axis: "Orientation de l'astigmatisme (0–180°). Le flou s'étire perpendiculairement à l'axe.\n180° (ou 0°) = astigmatisme « conforme », le plus fréquent : flou étiré verticalement.\n90° = astigmatisme « inverse » : flou étiré horizontalement.",
+  pupil: "Diamètre de la pupille : ~2–3 mm en plein soleil, 4 mm en intérieur, 6–8 mm la nuit.\nPlus la pupille est grande, plus le flou est important, et plus le bord de la lentille compte.\nEn mode automatique, elle suit l'heure choisie.",
+  hour: "Heure de la simulation : règle le soleil, la couleur du ciel et l'éclairage.\nLa nuit, les lampadaires et les fenêtres s'allument : les sources lumineuses fortes font apparaître les halos et éblouissements dus au flou ou au profil de la lentille.",
+  autoPupil: "Si coché, le diamètre de la pupille est déduit de la luminosité (de ~3 mm en plein jour à ~7 mm la nuit).\nDécocher pour le régler à la main.",
+  age: "Avec l'âge, l'œil perd sa capacité à faire la mise au point de près (accommodation, en D, formule de Hofstetter).\nC'est la presbytie : vers 45–50 ans, on ne lit plus net de près.",
+  lsph: "Puissance sphérique de la lentille (inscrite sur la boîte).\nPour corriger, elle doit égaler la sphère de l'ordonnance.",
+  lcyl: "Cylindre de la lentille (lentille torique).\n0 = lentille sphérique : elle ne corrige pas l'astigmatisme de l'œil.",
+  laxis: "Axe du cylindre de la lentille. S'il ne correspond pas à l'axe de l'œil, l'astigmatisme n'est pas corrigé (comme une lentille torique qui tourne).",
+  profile: "Façon dont la puissance varie du centre au bord de la lentille. Voir la description ci-dessous et le graphe.",
+  add: "Écart de puissance maximal du profil par rapport à la puissance nominale (en D).\nEx. +2.00 = les zones « de près » ont 2 D de plus.",
 };
 
 // ---------------------------------------------------------------------------
@@ -52,7 +81,41 @@ camera.rotation.order = 'YXZ';
 const scene = new THREE.Scene();
 const SKY = new THREE.Color(0xa9c8e8);
 scene.fog = new THREE.Fog(SKY, 150, 480);
-buildScene(scene, renderer, EYE_HEIGHT);
+const env = buildScene(scene, renderer, EYE_HEIGHT);
+
+// ---------------------------------------------------------------------------
+// Heure de la journée : soleil, ciel, éclairage nocturne, pupille
+// ---------------------------------------------------------------------------
+const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+const sunElevation = () => Math.sin(Math.PI * (P.hour - 6) / 12); // 1 à midi, 0 à 6h/18h, −1 à minuit
+const skyTint = new THREE.Color();
+
+function applyTime() {
+  const e = sunElevation();
+  const day = smooth(-0.12, 0.25, e);              // 0 nuit → 1 jour
+  const dusk = Math.exp(-(((e + 0.02) / 0.12) ** 2)); // lever / coucher
+  const night = 1 - smooth(-0.15, 0.05, e);         // lampadaires allumés
+
+  skyTint.setRGB(0.03, 0.04, 0.09).lerp(new THREE.Color(1, 1, 1), day)
+    .lerp(new THREE.Color(1.0, 0.55, 0.4), dusk * 0.55);
+  env.skyMat.color.copy(skyTint);
+  clearColor.copy(SKY).multiply(skyTint);
+  scene.fog.color.copy(clearColor);
+
+  const t = Math.PI * (P.hour - 6) / 12;
+  env.sun.position.set(100 * Math.cos(t), 100 * Math.sin(t), -40);
+  env.sun.intensity = 1.8 * smooth(0, 0.3, e);
+  env.sun.color.setRGB(1, 0.75 + 0.25 * smooth(0, 0.4, e), 0.55 + 0.45 * smooth(0, 0.4, e));
+  env.hemi.intensity = 0.06 + 1.55 * day;
+
+  env.bulbMat.color.setRGB(0.8, 0.8, 0.8).lerp(new THREE.Color(40, 30, 18), night); // HDR → halos
+  env.lampLights.forEach((l) => { l.intensity = 60 * night; });
+  env.windowMats.forEach((m, i) => { m.emissiveIntensity = (i % 3 === 2 ? 0 : 2.5) * night; });
+
+  // Pupille : ~3 mm en plein jour, ~5 mm au crépuscule, ~7 mm la nuit
+  if (P.autoPupil) P.pupilMm = Math.round((7 - 4 * smooth(-0.15, 0.3, e)) * 2) / 2;
+}
+const clearColor = new THREE.Color();
 
 // ---------------------------------------------------------------------------
 // Optique : table des taches image (PSF) par vergence d'objet
@@ -252,7 +315,7 @@ function drawHud() {
   ctx.fillStyle = '#cdd'; ctx.font = '34px sans-serif';
   const line = v === 'A' || v === 'B' ? lensSummary(P[v])
     : v === 'split' ? 'Gauche : lentille A · Droite : lentille B'
-    : v === 'ref' ? 'Aucun flou (référence)' : `Pupille ${P.pupilMm} mm · ${P.age} ans`;
+    : v === 'ref' ? 'Aucun flou (référence)' : `${fmtHour(P.hour)} · pupille ${P.pupilMm} mm · ${P.age} ans`;
   ctx.fillText(line, 36, 155, 960);
   hudTex.needsUpdate = true;
 }
@@ -265,39 +328,76 @@ const refreshers = [];
 let dirty = true;
 const changed = () => { dirty = true; };
 
-function slider(parent, label, min, max, step, obj, key, fmt) {
+function helpIcon(text) {
+  const h = document.createElement('span');
+  h.className = 'help'; h.tabIndex = 0; h.textContent = '?';
+  h.dataset.tip = text;
+  h.addEventListener('click', (e) => e.preventDefault()); // ne pas activer le champ du label
+  return h;
+}
+function slider(parent, label, min, max, step, obj, key, fmt, help) {
   const l = document.createElement('label');
-  l.innerHTML = `<span class="row"><span>${label}</span><span class="val"></span></span>
+  l.innerHTML = `<span class="row"><span class="name">${label}</span><span class="val"></span></span>
     <input type="range" min="${min}" max="${max}" step="${step}">`;
+  if (help) l.querySelector('.name').appendChild(helpIcon(help));
   const input = l.querySelector('input'), val = l.querySelector('.val');
   const refresh = () => { input.value = obj[key]; val.textContent = fmt(obj[key]); };
   input.addEventListener('input', () => { obj[key] = +input.value; refresh(); changed(); });
   refresh(); refreshers.push(refresh);
   parent.appendChild(l);
+  return input;
 }
-function select(parent, label, options, obj, key) {
+function checkbox(parent, label, obj, key, help) {
   const l = document.createElement('label');
-  l.innerHTML = `${label}<select>${Object.entries(options).map(([k, v]) => `<option value="${k}">${v[0]}</option>`).join('')}</select>`;
-  const s = l.querySelector('select');
-  const refresh = () => { s.value = obj[key]; };
+  l.className = 'check';
+  l.innerHTML = `<input type="checkbox"><span class="name">${label}</span>`;
+  if (help) l.querySelector('.name').appendChild(helpIcon(help));
+  const c = l.querySelector('input');
+  const refresh = () => { c.checked = obj[key]; };
+  c.addEventListener('change', () => { obj[key] = c.checked; changed(); });
+  refresh(); refreshers.push(refresh);
+  parent.appendChild(l);
+}
+function select(parent, label, options, obj, key, help) {
+  const l = document.createElement('label');
+  l.innerHTML = `<span class="name">${label}</span><select>${Object.entries(options).map(([k, v]) => `<option value="${k}">${v[0]}</option>`).join('')}</select>
+    <div class="desc"><span></span><button type="button" class="nightBtn" hidden></button></div>`;
+  if (help) l.querySelector('.name').appendChild(helpIcon(help));
+  const s = l.querySelector('select'), desc = l.querySelector('.desc span'), btn = l.querySelector('.nightBtn');
+  // Si la description parle de la nuit, proposer d'y passer (ou de revenir au jour)
+  const isNight = () => sunElevation() < -0.1;
+  btn.addEventListener('click', () => {
+    if (isNight()) P.hour = 14;
+    else { P.hour = 23; P.autoPupil = true; }
+    changed();
+  });
+  const refresh = () => {
+    s.value = obj[key];
+    desc.textContent = options[obj[key]][2];
+    btn.hidden = !options[obj[key]][3];
+    btn.textContent = isNight() ? '☀ Revenir au jour' : '🌙 Voir de nuit';
+  };
   s.addEventListener('change', () => { obj[key] = s.value; changed(); });
   refresh(); refreshers.push(refresh);
   parent.appendChild(l);
 }
 const deg = (v) => `${v}°`;
 
-slider($('eyeCtl'), 'Sphère', -10, 6, 0.25, P.eye, 'sph', fmtD);
-slider($('eyeCtl'), 'Cylindre (astigmatisme)', -6, 0, 0.25, P.eye, 'cyl', fmtD);
-slider($('eyeCtl'), 'Axe', 0, 180, 5, P.eye, 'axis', deg);
-slider($('eyeCtl'), 'Pupille', 2, 8, 0.5, P, 'pupilMm', (v) => `${v} mm`);
-slider($('eyeCtl'), 'Âge (accommodation)', 10, 75, 1, P, 'age', (v) => `${v} ans · ${accAmp().toFixed(1)} D`);
+slider($('eyeCtl'), 'Sphère', -10, 6, 0.25, P.eye, 'sph', fmtD, HELP.sph);
+slider($('eyeCtl'), 'Cylindre (astigmatisme)', -6, 0, 0.25, P.eye, 'cyl', fmtD, HELP.cyl);
+slider($('eyeCtl'), 'Axe', 0, 180, 5, P.eye, 'axis', deg, HELP.axis);
+const fmtHour = (h) => `${String(Math.floor(h) % 24).padStart(2, '0')}h${String(Math.round((h % 1) * 60)).padStart(2, '0')}`;
+slider($('eyeCtl'), 'Heure', 0, 24, 0.25, P, 'hour', fmtHour, HELP.hour);
+checkbox($('eyeCtl'), 'Pupille automatique (selon l\'heure)', P, 'autoPupil', HELP.autoPupil);
+const pupilInput = slider($('eyeCtl'), 'Pupille', 2, 8, 0.5, P, 'pupilMm', (v) => `${v} mm`, HELP.pupil);
+slider($('eyeCtl'), 'Âge (accommodation)', 10, 75, 1, P, 'age', (v) => `${v} ans · ${accAmp().toFixed(1)} D`, HELP.age);
 for (const id of ['A', 'B']) {
   const el = $('lens' + id);
-  slider(el, 'Sphère', -10, 6, 0.25, P[id], 'sph', fmtD);
-  slider(el, 'Cylindre', -6, 0, 0.25, P[id], 'cyl', fmtD);
-  slider(el, 'Axe', 0, 180, 5, P[id], 'axis', deg);
-  select(el, 'Profil', PROFILES, P[id], 'profile');
-  slider(el, 'Addition / amplitude du profil', -2, 4, 0.25, P[id], 'add', fmtD);
+  slider(el, 'Sphère', -10, 6, 0.25, P[id], 'sph', fmtD, HELP.lsph);
+  slider(el, 'Cylindre', -6, 0, 0.25, P[id], 'cyl', fmtD, HELP.lcyl);
+  slider(el, 'Axe', 0, 180, 5, P[id], 'axis', deg, HELP.laxis);
+  select(el, 'Profil', PROFILES, P[id], 'profile', HELP.profile);
+  slider(el, 'Addition / amplitude du profil', -2, 4, 0.25, P[id], 'add', fmtD, HELP.add);
 }
 document.querySelectorAll('[data-copy]').forEach((b) => b.addEventListener('click', () => {
   Object.assign(P[b.dataset.copy], P.eye);
@@ -342,6 +442,8 @@ function drawProfiles() {
 }
 
 function update() {
+  applyTime();
+  pupilInput.disabled = P.autoPupil;
   const u = blurMaterial.uniforms;
   u.K.value = K;
   u.enabledF.value = P.view === 'ref' ? 0 : 1;
@@ -354,6 +456,7 @@ function update() {
     u.lutA.value = u.lutB.value = lutTexture(P.view, computeLUT(lens));
   }
   viewButtons.forEach((b, i) => b.classList.toggle('on', VIEWS[i][0] === P.view));
+  $('viewDesc').textContent = VIEW_DESC[P.view];
   document.body.classList.toggle('split', P.view === 'split' && mode === 'desktop');
   refreshers.forEach((f) => f());
   drawProfiles();
@@ -455,6 +558,18 @@ for (let i = 0; i < 2; i++) {
   c.addEventListener('selectstart', nextView);
   scene.add(c);
 }
+// Stick gauche/droite : heure ±30 min
+let lastStick = 0;
+function pollXRInput(now) {
+  const session = renderer.xr.getSession();
+  if (!session || now - lastStick < 150) return;
+  for (const src of session.inputSources) {
+    const gp = src.gamepad;
+    if (!gp || gp.axes.length < 4 || Math.abs(gp.axes[2]) < 0.6) continue;
+    P.hour = (P.hour + (gp.axes[2] > 0 ? 0.5 : -0.5) + 24) % 24;
+    lastStick = now; changed(); return;
+  }
+}
 renderer.xr.addEventListener('sessionstart', () => { mode = 'xr'; K = 48; changed(); });
 renderer.xr.addEventListener('sessionend', () => { mode = 'desktop'; K = 96; onResize(); changed(); });
 
@@ -464,7 +579,7 @@ renderer.xr.addEventListener('sessionend', () => { mode = 'desktop'; K = 96; onR
 function renderEye(eyeCam, w, h, bindOutput) {
   ensureRT(w, h);
   renderer.setRenderTarget(sceneRT);
-  renderer.setClearColor(SKY, 1);
+  renderer.setClearColor(clearColor, 1);
   renderer.clear();
   renderer.render(scene, eyeCam);
 
@@ -492,12 +607,13 @@ function onResize() {
 window.addEventListener('resize', onResize);
 
 const clock = new THREE.Clock();
-renderer.setAnimationLoop(() => {
+renderer.setAnimationLoop((now) => {
   const dt = Math.min(clock.getDelta(), 0.1);
   if (dirty) { dirty = false; update(); }
   const W = window.innerWidth, H = window.innerHeight, pr = renderer.getPixelRatio();
 
   if (mode === 'xr' && renderer.xr.isPresenting) {
+    pollXRInput(now);
     const xrTarget = renderer.getRenderTarget();
     renderer.xr.updateCamera(camera);          // met à jour la pose de la tête
     const xrCam = renderer.xr.getCamera();

@@ -2,6 +2,8 @@
 import * as THREE from 'three';
 
 export function buildScene(scene, renderer, EYE_HEIGHT) {
+let skyMat;
+const windowMats = [];
 function rng(seed) { // PRNG déterministe
   return () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
 }
@@ -28,10 +30,12 @@ function canvasTexture(w, h, draw) {
     colors.push(c.r, c.g, c.b);
   }
   g.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-  scene.add(new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false })));
+  skyMat = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false });
+  scene.add(new THREE.Mesh(g, skyMat));
 }
 
-scene.add(new THREE.HemisphereLight(0xdfefff, 0x55603a, 1.6));
+const hemi = new THREE.HemisphereLight(0xdfefff, 0x55603a, 1.6);
+scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xfff4e0, 1.8);
 sun.position.set(30, 60, 20);
 scene.add(sun);
@@ -199,7 +203,8 @@ scene.add(sun);
     body.position.y = h / 2;
     const roof = new THREE.Mesh(new THREE.ConeGeometry(Math.max(w, d) * 0.75, 3, 4), new THREE.MeshLambertMaterial({ color: 0x8e3b2e }));
     roof.position.y = h + 1.5; roof.rotation.y = Math.PI / 4;
-    const win = new THREE.MeshLambertMaterial({ color: 0x24384f });
+    const win = new THREE.MeshLambertMaterial({ color: 0x24384f, emissive: 0xffc070, emissiveIntensity: 0 });
+    windowMats.push(win);
     for (let k = -1; k <= 1; k += 2) {
       const wnd = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 1.2), win);
       wnd.position.set(k * w * 0.25, h * 0.6, d / 2 + 0.01);
@@ -220,4 +225,28 @@ scene.add(sun);
     scene.add(mnt);
   }
 }
+
+// Lampadaires le long de la route : ampoules HDR (valeurs > 1) pour que le flou produise des halos
+const bulbMat = new THREE.MeshBasicMaterial({ color: 0xcccccc });
+const poleMat2 = new THREE.MeshLambertMaterial({ color: 0x3a3d42 });
+const lampLights = [];
+for (let i = 0; i < 16; i++) {
+  for (const side of [-1, 1]) {
+    const z = -4 - i * 12 - (side > 0 ? 6 : 0), x = side * 3.4;
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 5, 6), poleMat2);
+    pole.position.set(x, 2.5, z);
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.06, 0.06), poleMat2);
+    arm.position.set(x - side * 0.4, 5, z);
+    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.14, 12, 8), bulbMat);
+    bulb.position.set(x - side * 0.75, 4.88, z);
+    scene.add(pole, arm, bulb);
+    if (i < 3) { // quelques vraies lumières près de l'observateur
+      const l = new THREE.PointLight(0xffd9a0, 0, 30, 2);
+      l.position.copy(bulb.position).y -= 0.2;
+      scene.add(l); lampLights.push(l);
+    }
+  }
+}
+
+return { skyMat, hemi, sun, windowMats, bulbMat, lampLights };
 }
