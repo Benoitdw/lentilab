@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>Simulateur de myopie</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #000; font-family: system-ui, sans-serif; }
+    canvas { display: block; touch-action: none; }
+    #panel {
+      position: fixed; top: 12px; left: 12px; bottom: 12px; width: 330px; max-width: calc(100vw - 24px);
+      overflow-y: auto; background: rgba(20, 24, 30, .88); color: #eef; border-radius: 10px; padding: 12px 14px;
+      font-size: 13px; line-height: 1.3; backdrop-filter: blur(6px); box-sizing: border-box;
+    }
+    #panel.collapsed { bottom: auto; overflow: hidden; }
+    #panel.collapsed > :not(header) { display: none; }
+    #panel header { display: flex; justify-content: space-between; align-items: center; }
+    #panel h1 { font-size: 15px; margin: 0; }
+    #panel h2 { font-size: 13px; margin: 14px 0 4px; padding-top: 10px; border-top: 1px solid #fff3;
+      display: flex; justify-content: space-between; align-items: center; }
+    #panel h2 .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; }
+    #panel label { display: block; margin-top: 5px; }
+    #panel .row { display: flex; justify-content: space-between; }
+    #panel input[type=range] { width: 100%; margin: 2px 0 0; }
+    #panel select, #panel textarea { width: 100%; box-sizing: border-box; background: #0d1015; color: #eef;
+      border: 1px solid #fff3; border-radius: 4px; padding: 4px; font-size: 12px; }
+    #panel textarea { height: 70px; font-family: ui-monospace, monospace; }
+    #panel .val { font-variant-numeric: tabular-nums; font-weight: 600; }
+    #panel .small { font-size: 11px; opacity: .7; }
+    #panel button { padding: 5px 8px; border: 0; border-radius: 5px; background: #2c3442; color: #fff;
+      font-size: 12px; cursor: pointer; }
+    #panel button.primary { background: #3a6df0; width: 100%; padding: 8px; margin-top: 10px; font-size: 13px; }
+    /* Infobulles : survol (souris) ou toucher (mobile, via :focus) */
+    #panel label, #panel h2 { position: relative; }
+    .help { display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px;
+      margin-left: 5px; border-radius: 50%; background: #ffffff26; color: #cde; font-size: 10px; font-weight: 700;
+      cursor: help; vertical-align: 1px; outline: none; }
+    .help:hover, .help:focus { background: #3a6df0; color: #fff; }
+    .help::after { content: attr(data-tip); position: absolute; left: 0; right: 0; top: 100%; z-index: 5;
+      margin-top: 4px; padding: 8px 10px; border-radius: 6px; background: #f4f6fa; color: #1a1d24;
+      font-size: 12px; font-weight: 400; line-height: 1.4; white-space: pre-line; text-align: left;
+      box-shadow: 0 4px 16px #0008; opacity: 0; visibility: hidden; transition: opacity .12s; pointer-events: none; }
+    .help:hover::after, .help:focus::after { opacity: 1; visibility: visible; }
+    .desc { margin-top: 4px; padding: 6px 8px; border-left: 2px solid #3a6df0; background: #ffffff0d;
+      font-size: 12px; line-height: 1.35; color: #cdd5e0; }
+    #views { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: 6px; }
+    #views button.on { background: #3a6df0; }
+    #panel .check { display: flex; gap: 6px; align-items: center; }
+    #spots { display: grid; grid-template-columns: auto repeat(3, 1fr); gap: 3px; align-items: center;
+      font-size: 11px; text-align: center; margin-top: 6px; }
+    #spots canvas { width: 100%; aspect-ratio: 1; background: #000; border-radius: 3px; }
+    #profilePlot { width: 100%; height: 130px; background: #0d1015; border-radius: 4px; margin-top: 4px; }
+    .splitLabel { position: fixed; top: 12px; padding: 4px 10px; border-radius: 5px; background: #000a;
+      color: #fff; font: 600 13px system-ui, sans-serif; display: none; pointer-events: none; }
+    body.split .splitLabel { display: block; }
+    #labelA { right: calc(50% + 10px); } #labelB { left: calc(50% + 10px); }
+    #cbExit { position: fixed; top: 8px; left: 50%; transform: translateX(-50%); display: none;
+      padding: 6px 12px; border: 0; border-radius: 6px; background: #000a; color: #fff; font-size: 14px; z-index: 10; }
+    body.cardboard #panel, body.cardboard #VRButton, body.cardboard .splitLabel { display: none !important; }
+    body.cardboard #cbExit { display: block; }
+    body.cardboard::after { content: ""; position: fixed; top: 0; bottom: 0; left: 50%; width: 2px; background: #000; }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="panel">
+    <header><h1>Simulateur de vision</h1><button id="collapse">–</button></header>
+
+    <div id="views"></div>
+    <div class="desc" id="viewDesc"></div>
+    <div class="small" style="margin-top:4px">Espace / 1–5 / gâchette VR / toucher (Cardboard) : changer de vue</div>
+
+    <h2><span>Œil (ordonnance)<span class="help" tabindex="0" data-tip="Le défaut visuel du patient, écrit comme sur une ordonnance : sphère / cylindre × axe.&#10;Exemple : −2.00 / −1.00 × 180° = myopie de 2 D avec 1 D d'astigmatisme.&#10;C'est aussi la correction « idéale » : une lentille de même valeur annule le défaut.">?</span></span></h2>
+    <div id="eyeCtl"></div>
+
+    <h2><span><span class="swatch" style="background:#4ea1ff"></span>Lentille A<span class="help" tabindex="0" data-tip="Lentille de contact posée sur l'œil (centrée sur la pupille).&#10;Sphère / cylindre / axe = sa puissance nominale, celle écrite sur la boîte.&#10;Le profil décrit comment la puissance varie du centre au bord : deux lentilles de même puissance nominale peuvent donner des images très différentes.&#10;« = ordonnance » recopie la correction exacte de l'œil.">?</span></span><button data-copy="A">= ordonnance</button></h2>
+    <div id="lensA"></div>
+    <h2><span><span class="swatch" style="background:#ff9a3c"></span>Lentille B<span class="help" tabindex="0" data-tip="Lentille de contact posée sur l'œil (centrée sur la pupille).&#10;Sphère / cylindre / axe = sa puissance nominale, celle écrite sur la boîte.&#10;Le profil décrit comment la puissance varie du centre au bord : deux lentilles de même puissance nominale peuvent donner des images très différentes.&#10;« = ordonnance » recopie la correction exacte de l'œil.">?</span></span><button data-copy="B">= ordonnance</button></h2>
+    <div id="lensB"></div>
+
+    <h2><span>Profils de puissance<span class="help" tabindex="0" data-tip="Puissance ajoutée par la lentille (ΔP, en dioptries) selon la distance au centre (rayon, en mm).&#10;0 = puissance nominale de la lentille. +2 = zone « de près » qui rend flou au loin.&#10;Seule la partie à gauche du pointillé (bord de la pupille) participe à l'image : c'est pourquoi une même lentille se comporte différemment de jour (petite pupille) et de nuit (grande pupille).&#10;Bleu = lentille A, orange = lentille B.">?</span></span></h2>
+    <canvas id="profilePlot"></canvas>
+    <div class="small">Ligne pointillée : rayon de la pupille. Seule la partie à l'intérieur compte.</div>
+
+    <button class="primary" id="btnCardboard">Mode Cardboard (téléphone)</button>
+    <div class="small" style="margin-top:8px">Glisser pour regarder · ZQSD / WASD / flèches pour bouger.</div>
+  </div>
+  <div class="splitLabel" id="labelA">◀ Lentille A</div>
+  <div class="splitLabel" id="labelB">Lentille B ▶</div>
+  <button id="cbExit">✕ Quitter · toucher l'écran = vue suivante</button>
+  <script type="module" src="./main.js"></script>
+</body>
+</html>
